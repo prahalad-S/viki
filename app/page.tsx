@@ -1,65 +1,264 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, isTextUIPart } from "ai";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { ProviderSelector } from "@/components/provider-selector";
+import { useProviderSettings } from "@/hooks/use-provider-settings";
+import { SendHorizontal, Square, RotateCcw, Bot, User, AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+export default function ChatPage() {
+  const { settings } = useProviderSettings();
+  const [input, setInput] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        prepareSendMessagesRequest: ({ messages, id }) => ({
+          body: {
+            messages,
+            chatId: id,
+            providerId: settingsRef.current.providerId,
+            modelId: settingsRef.current.modelId,
+            apiKey: settingsRef.current.apiKey,
+          },
+        }),
+      }),
+    [] // stable — settings are read via ref at request time
+  );
+
+  const { messages, sendMessage, status, stop, regenerate } = useChat({ transport });
+
+  const isLoading = status === "streaming" || status === "submitted";
+  const error = status === "error";
+
+  // Auto-scroll
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
+  }, [input]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text || isLoading) return;
+    sendMessage({ role: "user", parts: [{ type: "text", text }] });
+    setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+  }, [input, isLoading, sendMessage]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const isEmptyChat = messages.length === 0;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <>
+      {/* Header */}
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur-md bg-background/80 sticky top-0 z-10">
+        <SidebarTrigger className="-ml-1" />
+        <div className="flex-1" />
+        <ProviderSelector />
+        <ThemeToggle />
+      </header>
+
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto">
+        {isEmptyChat ? (
+          <div className="flex flex-col items-center justify-center h-full text-center px-4 py-20 space-y-4">
+            <div className="flex aspect-square size-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
+              <Bot className="size-8" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold tracking-tight">How can I help you?</h1>
+              <p className="text-muted-foreground max-w-md">
+                Ask me anything — I can write code, explain concepts, analyze data, and much more.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 max-w-sm w-full mt-4">
+              {[
+                "Write a React component",
+                "Explain quantum computing",
+                "Debug my TypeScript error",
+                "Write a Python script",
+              ].map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => {
+                    setInput(prompt);
+                    textareaRef.current?.focus();
+                  }}
+                  className="text-left text-sm border rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground hover:border-primary/50 hover:bg-muted/50 transition-all"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={cn(
+                  "flex gap-3",
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                )}
+              >
+                {msg.role === "assistant" && (
+                  <div className="flex-shrink-0 flex aspect-square size-8 items-center justify-center rounded-full bg-primary text-primary-foreground mt-1">
+                    <Bot className="size-4" />
+                  </div>
+                )}
+                <div
+                  className={cn(
+                    "max-w-[85%] rounded-2xl px-4 py-3 text-sm",
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground rounded-tr-sm"
+                      : "bg-muted rounded-tl-sm"
+                  )}
+                >
+                  {msg.role === "user" ? (
+                    <p className="whitespace-pre-wrap">
+                      {msg.parts.filter(isTextUIPart).map((p) => p.text).join("")}
+                    </p>
+                  ) : (
+                    <MarkdownRenderer
+                      content={msg.parts.filter(isTextUIPart).map((p) => p.text).join("")}
+                    />
+                  )}
+                </div>
+                {msg.role === "user" && (
+                  <div className="flex-shrink-0 flex aspect-square size-8 items-center justify-center rounded-full bg-secondary mt-1">
+                    <User className="size-4" />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Streaming indicator */}
+            {isLoading && (
+              <div className="flex gap-3 justify-start">
+                <div className="flex-shrink-0 flex aspect-square size-8 items-center justify-center rounded-full bg-primary text-primary-foreground mt-1">
+                  <Bot className="size-4" />
+                </div>
+                <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.3s]" />
+                    <span className="size-2 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.15s]" />
+                    <span className="size-2 rounded-full bg-muted-foreground/60 animate-bounce" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-start gap-3 bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm text-destructive">
+                <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium">Error</p>
+                  <p className="text-destructive/80">
+                    Something went wrong. Check your API key or try a different provider.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-shrink-0 h-7 text-xs border-destructive/30 text-destructive hover:text-destructive"
+                  onClick={() => regenerate()}
+                >
+                  <RotateCcw className="size-3 mr-1" />
+                  Retry
+                </Button>
+              </div>
+            )}
+
+            {/* Regenerate button */}
+            {!isLoading && messages.length > 0 && !error && (
+              <div className="flex justify-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground gap-1.5"
+                  onClick={() => regenerate()}
+                >
+                  <RotateCcw className="size-3" />
+                  Regenerate response
+                </Button>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+        )}
+      </div>
+
+      {/* Input Area */}
+      <div className="p-4 bg-background/80 backdrop-blur-md border-t">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-end gap-2 bg-muted/50 border rounded-2xl px-4 py-3 focus-within:ring-1 focus-within:ring-ring transition-all">
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask anything… (Enter to send, Shift+Enter for new line)"
+              className="flex-1 resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 min-h-[24px] max-h-[200px] placeholder:text-muted-foreground/60"
+              rows={1}
+              disabled={isLoading}
+            />
+            {isLoading ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="flex-shrink-0 rounded-xl size-9"
+                onClick={stop}
+              >
+                <Square className="size-4 fill-current" />
+                <span className="sr-only">Stop</span>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="icon"
+                className="flex-shrink-0 rounded-xl size-9"
+                disabled={!input.trim()}
+                onClick={handleSend}
+              >
+                <SendHorizontal className="size-4" />
+                <span className="sr-only">Send</span>
+              </Button>
+            )}
+          </div>
+          <p className="text-center text-xs text-muted-foreground mt-2">
+            AI can make mistakes. Verify important information.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </>
   );
 }
