@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
         case "google": return process.env.GOOGLE_API_KEY;
         case "openai": return process.env.OPENAI_API_KEY;
         case "openrouter": return process.env.OPENROUTER_API_KEY;
+        case "nvidia": return process.env.NVIDIA_API_KEY;
         default: return undefined;
       }
     })();

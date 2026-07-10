@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { PROVIDERS, ProviderId } from "@/lib/providers";
 
 const STORAGE_KEY = "chat_provider_settings";
@@ -36,7 +36,12 @@ function save(settings: ProviderSettings) {
 }
 
 export function useProviderSettings() {
-  const [settings, setSettings] = useState<ProviderSettings>(load);
+  const [settings, setSettings] = useState<ProviderSettings>(getDefault());
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSettings(load());
+  }, []);
 
   const update = useCallback((updates: Partial<ProviderSettings>) => {
     setSettings((prev) => {

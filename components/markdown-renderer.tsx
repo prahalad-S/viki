@@ -107,7 +107,12 @@ export function MarkdownRenderer({ content }: { content: string }) {
         ),
         hr: () => <hr className="my-6 border-border" />,
         strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+        img: ({ src, alt }) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt={alt} className="rounded-xl max-w-full h-auto my-4 shadow-sm border border-border" />
+        ),
       }}
+      urlTransform={(value: string) => value}
     >
       {content}
     </ReactMarkdown>

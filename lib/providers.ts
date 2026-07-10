@@ -8,7 +8,8 @@ export type ProviderId =
   | "google"
   | "groq"
   | "openrouter"
-  | "ollama";
+  | "ollama"
+  | "nvidia";
 
 export interface ProviderConfig {
   id: ProviderId;
@@ -24,6 +25,7 @@ export interface ModelConfig {
   name: string;
   description?: string;
   contextWindow?: number;
+  type?: "text" | "image";
 }
 
 export const PROVIDERS: ProviderConfig[] = [
@@ -87,6 +89,18 @@ export const PROVIDERS: ProviderConfig[] = [
       { id: "gemma3", name: "Gemma 3", description: "Google's local model" },
     ],
   },
+  {
+    id: "nvidia",
+    name: "NVIDIA NIM",
+    description: "NVIDIA's API for AI Models (Text and Image)",
+    requiresApiKey: true,
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    models: [
+      { id: "black-forest-labs/flux1-dev", name: "Flux 1 Dev", description: "High-quality image generation", type: "image" },
+      { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Llama 3.1 Nemotron 70B", description: "NVIDIA-optimized text model", type: "text" },
+      { id: "stabilityai/stable-diffusion-xl-base-1.0", name: "Stable Diffusion XL", description: "SDXL image generation", type: "image" },
+    ],
+  },
 ];
 
 export function getModel(
@@ -121,6 +135,13 @@ export function getModel(
         baseURL: baseUrl || "http://localhost:11434/v1",
       });
       return ollama(modelId);
+    }
+    case "nvidia": {
+      const nvidia = createOpenAI({
+        apiKey: apiKey,
+        baseURL: baseUrl || "https://integrate.api.nvidia.com/v1",
+      });
+      return nvidia(modelId);
     }
     default:
       throw new Error(`Unknown provider: ${providerId}`);

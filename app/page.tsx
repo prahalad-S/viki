@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, isTextUIPart } from "ai";
+import { DefaultChatTransport, isTextUIPart, UIMessage } from "ai";
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -12,6 +12,7 @@ import { ProviderSelector } from "@/components/provider-selector";
 import { useProviderSettings } from "@/hooks/use-provider-settings";
 import { SendHorizontal, Square, RotateCcw, Bot, User, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PROVIDERS } from "@/lib/providers";
 
 export default function ChatPage() {
   const { settings } = useProviderSettings();
@@ -19,30 +20,37 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const settingsRef = useRef(settings);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  const prepareRequest = useCallback(
+    ({ messages, id }: { messages: UIMessage[]; id: string }) => ({
+      body: {
+        messages,
+        chatId: id,
+        providerId: settings.providerId,
+        modelId: settings.modelId,
+        apiKey: settings.apiKey,
+      },
+    }),
+    [settings]
+  );
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
-        prepareSendMessagesRequest: ({ messages, id }) => ({
-          body: {
-            messages,
-            chatId: id,
-            providerId: settingsRef.current.providerId,
-            modelId: settingsRef.current.modelId,
-            apiKey: settingsRef.current.apiKey,
-          },
-        }),
+        prepareSendMessagesRequest: prepareRequest,
       }),
-    [] // stable — settings are read via ref at request time
+    [prepareRequest]
   );
 
-  const { messages, sendMessage, status, stop, regenerate } = useChat({ transport });
+  const { messages, setMessages, sendMessage, status, stop, regenerate } = useChat({ transport });
 
-  const isLoading = status === "streaming" || status === "submitted";
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const isLoading = status === "streaming" || status === "submitted" || isGeneratingImage;
   const error = status === "error";
+
+  const currentProvider = PROVIDERS.find((p) => p.id === settings.providerId);
+  const currentModel = currentProvider?.models.find((m) => m.id === settings.modelId);
+  const isImageMode = currentModel?.type === "image";
 
   // Auto-scroll
   useEffect(() => {
@@ -57,13 +65,61 @@ export default function ChatPage() {
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
   }, [input]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || isLoading) return;
-    sendMessage({ role: "user", parts: [{ type: "text", text }] });
-    setInput("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
-  }, [input, isLoading, sendMessage]);
+
+    if (isImageMode) {
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+      setIsGeneratingImage(true);
+      
+      const userMessageId = Date.now().toString();
+      setMessages((prev) => [...prev, { id: userMessageId, role: "user", parts: [{ type: "text", text }] }]);
+      
+      try {
+        const res = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: text,
+            providerId: settings.providerId,
+            modelId: settings.modelId,
+            apiKey: settings.apiKey,
+          }),
+        });
+        
+        if (!res.ok) throw new Error(await res.text());
+        
+        const data = await res.json();
+        
+        setMessages((prev) => [
+          ...prev, 
+          { 
+            id: Date.now().toString(), 
+            role: "assistant", 
+            parts: [{ type: "text", text: `![Generated Image](${data.url})` }] 
+          }
+        ]);
+      } catch (err) {
+        console.error("Image generation failed:", err);
+        setMessages((prev) => [
+          ...prev, 
+          { 
+            id: Date.now().toString(), 
+            role: "assistant", 
+            parts: [{ type: "text", text: "❌ Failed to generate image. Please check your API key and try again." }] 
+          }
+        ]);
+      } finally {
+        setIsGeneratingImage(false);
+      }
+    } else {
+      sendMessage({ role: "user", parts: [{ type: "text", text }] });
+      setInput("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+    }
+  }, [input, isLoading, isImageMode, sendMessage, setMessages, settings]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -197,7 +253,7 @@ export default function ChatPage() {
             )}
 
             {/* Regenerate button */}
-            {!isLoading && messages.length > 0 && !error && (
+            {!isLoading && messages.length > 0 && !error && !isImageMode && (
               <div className="flex justify-center">
                 <Button
                   variant="ghost"
@@ -225,7 +281,7 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything… (Enter to send, Shift+Enter for new line)"
+              placeholder={isImageMode ? "Describe the image you want to generate…" : "Ask anything… (Enter to send, Shift+Enter for new line)"}
               className="flex-1 resize-none border-0 bg-transparent p-0 text-sm focus-visible:ring-0 min-h-[24px] max-h-[200px] placeholder:text-muted-foreground/60"
               rows={1}
               disabled={isLoading}
