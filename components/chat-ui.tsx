@@ -46,7 +46,7 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
 
   const { messages, setMessages, sendMessage, status, stop, regenerate } = useChat({
     id,
-    initialMessages,
+    messages: initialMessages,
     transport,
     onFinish: () => {
       // If we're on the root page and a message just finished, redirect to the chat URL
