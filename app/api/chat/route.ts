@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
             });
          }
          
-         const totalTokens = (usage.promptTokens || 0) + (usage.completionTokens || 0);
+         const totalTokens = ((usage as any)?.promptTokens || 0) + ((usage as any)?.completionTokens || 0) || (usage as any)?.totalTokens || 0;
          const { data: currProfile } = await supabase.from('profiles').select('tokens_used, tokens_left').eq('id', user.id).single();
          if (currProfile) {
             await supabase.from('profiles').update({

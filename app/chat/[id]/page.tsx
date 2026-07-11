@@ -21,7 +21,7 @@ export default async function ChatHistoryPage({ params }: { params: Promise<{ id
 
   const initialMessages: UIMessage[] = (messages || []).map((msg) => ({
     id: msg.id,
-    role: msg.role as 'user' | 'assistant' | 'system' | 'data',
+    role: msg.role as 'user' | 'assistant' | 'system',
     parts: [{ type: 'text', text: msg.content }],
     content: msg.content
   }));
