@@ -1,18 +1,57 @@
 import { streamText, convertToModelMessages, type UIMessage } from "ai";
 import { getModel, ProviderId } from "@/lib/providers";
 import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { geolocation, ipAddress } from '@vercel/functions';
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
+    // Get user profile to check blocks and tokens
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_blocked, tokens_left')
+      .eq('id', user.id)
+      .single();
+
+    if (profile?.is_blocked) {
+      return new Response(JSON.stringify({ error: "Your account has been blocked." }), { status: 403 });
+    }
+
+    if (profile?.tokens_left !== undefined && profile.tokens_left <= 0) {
+      return new Response(JSON.stringify({ error: "You have run out of tokens." }), { status: 402 });
+    }
+
+    // Geolocation
+    const ip = ipAddress(req) || '127.0.0.1';
+    const geo = geolocation(req);
+    const country = geo?.country || 'Unknown';
+    const state = geo?.countryRegion || 'Unknown';
+
+    // Update profile
+    await supabase.from('profiles').update({
+      last_seen: new Date().toISOString(),
+      ip_address: ip,
+      country: country,
+      state: state,
+    }).eq('id', user.id);
+
     const body = await req.json();
-    const { messages, providerId, modelId, apiKey, baseUrl } = body as {
+    const { messages, providerId, modelId, apiKey, baseUrl, chatId } = body as {
       messages: UIMessage[];
       providerId: string;
       modelId: string;
       apiKey?: string;
       baseUrl?: string;
+      chatId?: string;
     };
 
     const resolvedApiKey = apiKey || (() => {
@@ -42,6 +81,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Save user message to database
+    const userMessage = messages[messages.length - 1];
+    
+    let activeChatId = chatId;
+    if (activeChatId) {
+       // Check if chat exists
+       const { data: chat } = await supabase.from('chats').select('id').eq('id', activeChatId).single();
+       if (!chat) {
+         // Create chat
+         const titleText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as any).text).join('');
+         await supabase.from('chats').insert({
+            id: activeChatId,
+            user_id: user.id,
+            title: titleText.substring(0, 50) + (titleText.length > 50 ? '...' : '')
+         });
+       }
+       
+       const contentText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as any).text).join('');
+       await supabase.from('messages').insert({
+        chat_id: activeChatId,
+        role: 'user',
+        content: contentText
+      });
+    }
+
     const model = getModel(providerId as ProviderId, modelId, resolvedApiKey, baseUrl);
     const modelMessages = await convertToModelMessages(messages);
 
@@ -50,6 +114,24 @@ export async function POST(req: NextRequest) {
       messages: modelMessages,
       system:
         "You are a helpful, intelligent AI assistant. Be concise but thorough. Format code with proper markdown code blocks and language identifiers.",
+      onFinish: async ({ text, usage }) => {
+         if (activeChatId) {
+            await supabase.from('messages').insert({
+               chat_id: activeChatId,
+               role: 'assistant',
+               content: text
+            });
+         }
+         
+         const totalTokens = (usage.promptTokens || 0) + (usage.completionTokens || 0);
+         const { data: currProfile } = await supabase.from('profiles').select('tokens_used, tokens_left').eq('id', user.id).single();
+         if (currProfile) {
+            await supabase.from('profiles').update({
+               tokens_used: (currProfile.tokens_used || 0) + totalTokens,
+               tokens_left: (currProfile.tokens_left || 0) - totalTokens
+            }).eq('id', user.id);
+         }
+      }
     });
 
     return result.toUIMessageStreamResponse();

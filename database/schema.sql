@@ -11,6 +11,14 @@ drop function if exists public.handle_updated_at cascade;
 -- Profiles table (extends auth.users)
 create table public.profiles (
   id uuid not null references auth.users(id) on delete cascade,
+  email text,
+  is_blocked boolean default false,
+  role text default 'user',
+  tokens_used integer default 0,
+  last_seen timestamp with time zone,
+  ip_address text,
+  country text,
+  state text,
   display_name text,
   avatar_url text,
   writing_style text,
@@ -23,7 +31,7 @@ create table public.profiles (
 -- Chats table
 create table public.chats (
   id uuid not null default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
   title text not null default 'New Chat',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
@@ -115,12 +123,18 @@ create trigger handle_chats_updated_at
 -- Trigger to automatically create a profile when a new user signs up
 create or replace function public.handle_new_user()
 returns trigger as $$
+declare
+  is_admin boolean;
 begin
-  insert into public.profiles (id, display_name, avatar_url)
+  is_admin := new.email = 'aliaswave7@gmail.com';
+  
+  insert into public.profiles (id, email, display_name, avatar_url, role)
   values (
     new.id,
+    new.email,
     new.raw_user_meta_data->>'full_name',
-    new.raw_user_meta_data->>'avatar_url'
+    new.raw_user_meta_data->>'avatar_url',
+    case when is_admin then 'admin' else 'user' end
   );
   return new;
 end;

@@ -5,11 +5,14 @@ import {
   MessageSquare,
   Settings,
   LogOut,
-  LogIn
+  LogIn,
+  ShieldAlert
 } from "lucide-react"
 import type { User } from "@supabase/supabase-js"
 import { signOut } from "@/app/login/actions"
 import { createClient } from "@/lib/supabase/client"
+import { isToday, subDays, isAfter } from "date-fns"
+import { useRouter, usePathname } from "next/navigation"
 
 import {
   Sidebar,
@@ -25,37 +28,71 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar"
 
-// Sample data for now
-const data = {
-  navMain: [
-    {
-      title: "Today",
-      items: [
-        { title: "React 19 Features", url: "#" },
-        { title: "Next.js App Router", url: "#" },
-      ],
-    },
-    {
-      title: "Previous 7 Days",
-      items: [
-        { title: "Supabase Auth setup", url: "#" },
-        { title: "Tailwind CSS tricks", url: "#" },
-      ],
-    },
-  ],
+type Chat = {
+  id: string;
+  title: string;
+  updated_at: string;
+}
+
+type GroupedChats = {
+  title: string;
+  items: Chat[];
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const [user, setUser] = React.useState<User | null>(null)
+  const [isAdmin, setIsAdmin] = React.useState(false)
+  const [groupedChats, setGroupedChats] = React.useState<GroupedChats[]>([])
+  const router = useRouter();
+  const pathname = usePathname();
 
   React.useEffect(() => {
     const supabase = createClient()
+    
+    async function loadData(currentUser: User) {
+      // Check admin
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', currentUser.id).single()
+      setIsAdmin(profile?.role === 'admin')
+
+      // Fetch chats
+      const { data: chats } = await supabase.from('chats').select('id, title, updated_at').eq('user_id', currentUser.id).order('updated_at', { ascending: false })
+      
+      if (chats) {
+        const today: Chat[] = []
+        const previous7Days: Chat[] = []
+        const older: Chat[] = []
+        
+        const sevenDaysAgo = subDays(new Date(), 7)
+
+        chats.forEach(chat => {
+          const date = new Date(chat.updated_at)
+          if (isToday(date)) today.push(chat)
+          else if (isAfter(date, sevenDaysAgo)) previous7Days.push(chat)
+          else older.push(chat)
+        })
+
+        const groups = []
+        if (today.length > 0) groups.push({ title: "Today", items: today })
+        if (previous7Days.length > 0) groups.push({ title: "Previous 7 Days", items: previous7Days })
+        if (older.length > 0) groups.push({ title: "Older", items: older })
+        
+        setGroupedChats(groups)
+      }
+    }
+
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user)
+      if (data.user) loadData(data.user)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
+      if (session?.user) {
+        loadData(session.user)
+      } else {
+        setGroupedChats([])
+        setIsAdmin(false)
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -66,7 +103,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<a href="#" />}>
+            <SidebarMenuButton size="lg" onClick={() => router.push('/')}>
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <MessageSquare className="size-4" />
               </div>
@@ -78,17 +115,20 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {data.navMain.map((group) => (
+        {groupedChats.map((group) => (
           <SidebarGroup key={group.title}>
             <SidebarGroupLabel>{group.title}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton render={<a href={item.url} />}>
-                      {item.title}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                   <SidebarMenuItem key={item.id}>
+                     <SidebarMenuButton 
+                        onClick={() => router.push(`/chat/${item.id}`)}
+                        isActive={pathname === `/chat/${item.id}`}
+                     >
+                       {item.title}
+                     </SidebarMenuButton>
+                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
             </SidebarGroupContent>
@@ -97,12 +137,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton render={<a href="#" />}>
-              <Settings className="size-4" />
-              <span>Settings</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {isAdmin && (
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => router.push('/admin')}>
+                <ShieldAlert className="size-4" />
+                <span>Admin Dashboard</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           
           {user ? (
             <SidebarMenuItem>
@@ -115,7 +157,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenuItem>
           ) : (
             <SidebarMenuItem>
-              <SidebarMenuButton render={<a href="/login" />}>
+              <SidebarMenuButton onClick={() => router.push('/login')}>
                 <LogIn className="size-4" />
                 <span>Sign in</span>
               </SidebarMenuButton>

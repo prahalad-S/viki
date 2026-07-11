@@ -1,15 +1,50 @@
 import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { geolocation, ipAddress } from '@vercel/functions';
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_blocked, tokens_left')
+      .eq('id', user.id)
+      .single();
+
+    if (profile?.is_blocked) {
+      return new Response(JSON.stringify({ error: "Your account has been blocked." }), { status: 403 });
+    }
+
+    // Assume 1 image generation = 50 tokens
+    if (profile?.tokens_left !== undefined && profile.tokens_left < 50) {
+      return new Response(JSON.stringify({ error: "You do not have enough tokens to generate an image." }), { status: 402 });
+    }
+
+    const ip = ipAddress(req) || '127.0.0.1';
+    const geo = geolocation(req);
+    
+    await supabase.from('profiles').update({
+      last_seen: new Date().toISOString(),
+      ip_address: ip,
+      country: geo?.country || 'Unknown',
+      state: geo?.countryRegion || 'Unknown',
+    }).eq('id', user.id);
+
     const body = await req.json();
-    const { prompt, providerId, modelId, apiKey } = body as {
+    const { prompt, providerId, modelId, apiKey, chatId } = body as {
       prompt: string;
       providerId: string;
       modelId: string;
       apiKey?: string;
+      chatId?: string;
     };
 
     const resolvedApiKey = apiKey || (() => {
@@ -82,19 +117,40 @@ export async function POST(req: NextRequest) {
     const b64 = data.artifacts?.[0]?.base64 || data.data?.[0]?.b64_json;
     const url = data.data?.[0]?.url;
 
+    let imageUrl = "";
     if (b64) {
-      return new Response(
-        JSON.stringify({ url: `data:image/jpeg;base64,${b64}` }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
+      imageUrl = `data:image/jpeg;base64,${b64}`;
     } else if (url) {
-      return new Response(
-        JSON.stringify({ url }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
+      imageUrl = url;
     } else {
       throw new Error("No image data in response");
     }
+    
+    // Save to history and deduct tokens
+    if (chatId) {
+       const { data: chat } = await supabase.from('chats').select('id').eq('id', chatId).single();
+       if (!chat) {
+         await supabase.from('chats').insert({ id: chatId, user_id: user.id, title: prompt.substring(0, 50) });
+       }
+       
+       await supabase.from('messages').insert([
+         { chat_id: chatId, role: 'user', content: prompt },
+         { chat_id: chatId, role: 'assistant', content: `![Generated Image](${imageUrl})` }
+       ]);
+    }
+    
+    const { data: currProfile } = await supabase.from('profiles').select('tokens_used, tokens_left').eq('id', user.id).single();
+    if (currProfile) {
+       await supabase.from('profiles').update({
+          tokens_used: (currProfile.tokens_used || 0) + 50,
+          tokens_left: (currProfile.tokens_left || 0) - 50
+       }).eq('id', user.id);
+    }
+
+    return new Response(
+      JSON.stringify({ url: imageUrl }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
     console.error("[generate-image] Error:", message);
