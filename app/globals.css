@@ -131,3 +131,8 @@
     @apply font-sans;
   }
 }
+
+textarea {
+  min-height: 96px !important;
+  background-color: transparent !important;
+}

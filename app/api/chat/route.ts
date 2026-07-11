@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     // Save user message to database
     const userMessage = messages[messages.length - 1];
     
-    let activeChatId = chatId;
+    const activeChatId = chatId;
     if (activeChatId) {
        // Check if chat exists
        const { data: chat } = await supabase.from('chats').select('id').eq('id', activeChatId).single();

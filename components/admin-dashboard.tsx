@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
@@ -18,9 +18,12 @@ export function AdminDashboard({ initialUsers, recentMessages }: { initialUsers:
     }
   };
 
-  const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).getTime();
+  const [fiveMinsAgo, setFiveMinsAgo] = useState<number | null>(null);
+  useEffect(() => {
+    setFiveMinsAgo(Date.now() - 5 * 60 * 1000);
+  }, []);
   
-  const onlineUsers = users.filter(u => u.last_seen && new Date(u.last_seen).getTime() > fiveMinsAgo).length;
+  const onlineUsers = users.filter(u => u.last_seen && fiveMinsAgo !== null && new Date(u.last_seen).getTime() > fiveMinsAgo).length;
   const offlineUsers = users.length - onlineUsers;
   const blockedUsers = users.filter(u => u.is_blocked).length;
   const unblockedUsers = users.length - blockedUsers;

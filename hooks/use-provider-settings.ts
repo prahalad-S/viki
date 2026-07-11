@@ -46,10 +46,11 @@ export function useProviderSettings() {
   const update = useCallback((updates: Partial<ProviderSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...updates };
-      // Reset model when provider changes
+      // Reset model and API key when provider changes
       if (updates.providerId && updates.providerId !== prev.providerId) {
         const provider = PROVIDERS.find((p) => p.id === updates.providerId);
         next.modelId = provider?.models[0]?.id ?? "";
+        next.apiKey = ""; // Reset API key to avoid sending another provider's key
       }
       save(next);
       return next;
