@@ -15,6 +15,7 @@ create table public.profiles (
   is_blocked boolean default false,
   role text default 'user',
   tokens_used integer default 0,
+  tokens_left integer default 10000,
   last_seen timestamp with time zone,
   ip_address text,
   country text,
@@ -53,6 +54,9 @@ create table public.messages (
 alter table public.profiles enable row level security;
 alter table public.chats enable row level security;
 alter table public.messages enable row level security;
+
+-- Enable realtime for chats table
+alter publication supabase_realtime add table public.chats;
 
 -- Profiles Policies
 create policy "Public profiles are viewable by everyone."

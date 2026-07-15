@@ -27,8 +27,10 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showTokenDialog, setShowTokenDialog] = useState(false);
-  // Stable chat ID for new chats started from the root page
-  const newChatIdRef = useRef<string>(Date.now().toString());
+  // Stable UUID for new chats started from root page — must be UUID to match chats.id schema
+  const newChatIdRef = useRef<string>(
+    typeof crypto !== "undefined" ? crypto.randomUUID() : Date.now().toString()
+  );
   const activeChatId = id ?? newChatIdRef.current;
 
   const isImageMode = modeState.mode === "text-to-image";
@@ -44,8 +46,8 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
     ? modeState.imageModelId
     : (settings.apiKey ? settings.modelId : modeState.generalModelId);
 
-  // Only send the user's own API key; if empty, server uses env key
-  const effectiveApiKey = settings.apiKey || undefined;
+  // Only send the user's own API key for general text chat; for image mode, use the server's env key.
+  const effectiveApiKey = isImageMode ? undefined : (settings.apiKey || undefined);
 
   const prepareRequest = useCallback(
     ({ messages }: { messages: UIMessage[]; id: string }) => ({

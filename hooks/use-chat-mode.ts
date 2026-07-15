@@ -17,7 +17,7 @@ const DEFAULTS: ChatModeState = {
   mode: "general",
   generalProviderId: "groq",
   generalModelId: "llama-3.3-70b-versatile",
-  imageModelId: "black-forest-labs/flux1-dev",
+  imageModelId: "black-forest-labs/flux.2-klein-4b",
 };
 
 function load(): ChatModeState {

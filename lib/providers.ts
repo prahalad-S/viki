@@ -96,6 +96,7 @@ export const PROVIDERS: ProviderConfig[] = [
     requiresApiKey: true,
     baseUrl: "https://integrate.api.nvidia.com/v1",
     models: [
+      { id: "black-forest-labs/flux.2-klein-4b", name: "Flux 2 Klein", description: "Fast & high quality image generation", type: "image" },
       { id: "black-forest-labs/flux1-dev", name: "Flux 1 Dev", description: "High-quality image generation", type: "image" },
       { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Llama 3.1 Nemotron 70B", description: "NVIDIA-optimized text model", type: "text" },
       { id: "stabilityai/stable-diffusion-xl-base-1.0", name: "Stable Diffusion XL", description: "SDXL image generation", type: "image" },
