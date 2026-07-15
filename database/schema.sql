@@ -130,7 +130,7 @@ returns trigger as $$
 declare
   is_admin boolean;
 begin
-  is_admin := new.email = 'aliaswave7@gmail.com';
+  is_admin := lower(new.email) = 'aliaswave7@gmail.com';
   
   insert into public.profiles (id, email, display_name, avatar_url, role)
   values (
