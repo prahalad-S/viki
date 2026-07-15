@@ -1,12 +1,33 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 
-export function AdminDashboard({ initialUsers, recentMessages }: { initialUsers: any[], recentMessages: any[] }) {
+interface UserProfile {
+  id: string;
+  email?: string;
+  role?: string;
+  is_blocked?: boolean;
+  last_seen?: string;
+  tokens_used?: number;
+  tokens_left?: number;
+  country?: string;
+  state?: string;
+  ip_address?: string;
+}
+
+interface RecentMessage {
+  id: string;
+  created_at: string;
+  content: string;
+  // Supabase returns the joined relation as an array
+  chats?: { user_id?: string; profiles?: { email?: string }[] }[] | null;
+}
+
+export function AdminDashboard({ initialUsers, recentMessages }: { initialUsers: UserProfile[], recentMessages: RecentMessage[] }) {
   const [users, setUsers] = useState(initialUsers);
   const supabase = createClient();
 
@@ -18,12 +39,9 @@ export function AdminDashboard({ initialUsers, recentMessages }: { initialUsers:
     }
   };
 
-  const [fiveMinsAgo, setFiveMinsAgo] = useState<number | null>(null);
-  useEffect(() => {
-    setFiveMinsAgo(Date.now() - 5 * 60 * 1000);
-  }, []);
+  const [fiveMinsAgo] = useState(() => Date.now() - 5 * 60 * 1000);
   
-  const onlineUsers = users.filter(u => u.last_seen && fiveMinsAgo !== null && new Date(u.last_seen).getTime() > fiveMinsAgo).length;
+  const onlineUsers = users.filter(u => u.last_seen && new Date(u.last_seen).getTime() > fiveMinsAgo).length;
   const offlineUsers = users.length - onlineUsers;
   const blockedUsers = users.filter(u => u.is_blocked).length;
   const unblockedUsers = users.length - blockedUsers;
@@ -147,7 +165,7 @@ export function AdminDashboard({ initialUsers, recentMessages }: { initialUsers:
                     <Button 
                       size="sm" 
                       variant={u.is_blocked ? "default" : "destructive"}
-                      onClick={() => toggleBlock(u.id, u.is_blocked)}
+                      onClick={() => toggleBlock(u.id, u.is_blocked ?? false)}
                       disabled={u.role === 'admin'}
                     >
                       {u.is_blocked ? 'Unblock' : 'Block'}
@@ -172,10 +190,10 @@ export function AdminDashboard({ initialUsers, recentMessages }: { initialUsers:
               </tr>
             </thead>
             <tbody>
-              {recentMessages.map((msg: any) => (
+              {recentMessages.map((msg: RecentMessage) => (
                 <tr key={msg.id} className="border-b">
                   <td className="px-4 py-3 whitespace-nowrap">{new Date(msg.created_at).toLocaleString()}</td>
-                  <td className="px-4 py-3">{msg.chats?.profiles?.email || 'Unknown'}</td>
+                  <td className="px-4 py-3">{msg.chats?.[0]?.profiles?.[0]?.email || 'Unknown'}</td>
                   <td className="px-4 py-3 max-w-xl truncate">{msg.content}</td>
                 </tr>
               ))}

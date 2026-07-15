@@ -4,6 +4,9 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { geolocation, ipAddress } from '@vercel/functions';
 
+interface TextPart { type: 'text'; text: string; }
+interface TokenUsage { promptTokens?: number; completionTokens?: number; totalTokens?: number; }
+
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
@@ -90,7 +93,7 @@ export async function POST(req: NextRequest) {
        const { data: chat } = await supabase.from('chats').select('id').eq('id', activeChatId).single();
        if (!chat) {
          // Create chat
-         const titleText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as any).text).join('');
+         const titleText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as TextPart).text).join('');
          await supabase.from('chats').insert({
             id: activeChatId,
             user_id: user.id,
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
          });
        }
        
-       const contentText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as any).text).join('');
+       const contentText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as TextPart).text).join('');
        await supabase.from('messages').insert({
         chat_id: activeChatId,
         role: 'user',
@@ -123,7 +126,8 @@ export async function POST(req: NextRequest) {
             });
          }
          
-         const totalTokens = ((usage as any)?.promptTokens || 0) + ((usage as any)?.completionTokens || 0) || (usage as any)?.totalTokens || 0;
+         const typedUsage = usage as TokenUsage;
+         const totalTokens = (typedUsage?.promptTokens || 0) + (typedUsage?.completionTokens || 0) || typedUsage?.totalTokens || 0;
          const { data: currProfile } = await supabase.from('profiles').select('tokens_used, tokens_left').eq('id', user.id).single();
          if (currProfile) {
             await supabase.from('profiles').update({

@@ -3,7 +3,6 @@
 import * as React from "react"
 import {
   MessageSquare,
-  Settings,
   LogOut,
   LogIn,
   ShieldAlert
@@ -80,13 +79,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       }
     }
 
+    let currentUser: User | null = null;
+
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user)
+      currentUser = data.user;
       if (data.user) loadData(data.user)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
+      currentUser = session?.user ?? null;
       if (session?.user) {
         loadData(session.user)
       } else {
@@ -95,7 +98,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       }
     })
 
-    return () => subscription.unsubscribe()
+    // Realtime: refresh chat list whenever a chat is inserted or updated
+    const chatsSub = supabase
+      .channel('sidebar-chats')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chats' }, () => {
+        if (currentUser) loadData(currentUser)
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chats' }, () => {
+        if (currentUser) loadData(currentUser)
+      })
+      .subscribe()
+
+    return () => {
+      authSub.unsubscribe()
+      supabase.removeChannel(chatsSub)
+    }
   }, [])
 
   return (

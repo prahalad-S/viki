@@ -1,24 +1,22 @@
 @AGENTS.md
 
-yes, that worked. now lets try this. can we integrate our history on left nav. right now i am seeing:
-React 19 Features
-Next.js App Router
-Previous 7 Days
-Supabase Auth setup
-Tailwind CSS tricks
+be default i want to use chatbox without entering my api keys for groq, nvidia and openrouter in UI
 
-remove the above and keep my history what was serached in chat.
+inside bottom left corner of the textarea of chatbox:
+add options side by side like:
 
-also i am the admin. i need more access with tables and chart:
-1. i can block anyone from useing the chatbox.
-2. i want analytics of what the users are searching. (in table and chart)
-3. i want to see how many users are online. (in table and chart)
-4. i want to see how many users are offline. (in table and chart)
-5. i want to see how many users are blocked. (in table and chart)
-6. i want to see how many users are not blocked.   
-7. country wise chart of users who are using the chatbox.
-8. state wise chart of users who are using the chatbox. 
-9. get geo location ip address of user who are using the chatbox.
-10. get email id of user who are using the chatbox.
-11. show numbe of tokens used by each user. (in table and chart)
-12. numbe of tokens left for each user. (in table and chart)
+1. general
+2. text to image
+
+by default activate the general for llm response and we can switch to text to image when we need to generate image.
+in the chatmessage component: if mode is text to image then render it.
+
+use my keys of groq, openrouter, openai, clerk for general chat.
+when user swtiches to text to image mode then use nvidia api key.
+
+but also show the models to users to select when they switch between modes. 
+
+and keep 'AI Provider Settings' as it is at top right corner for logged in users to add their keys to use the chatbox if once my keys tokens are finished. when token are finished show a pop up message to all logged in users 'you ran out of free usage, add you own api keys to use chatbox' with 'OK' button to close the pop up message. 
+
+
+

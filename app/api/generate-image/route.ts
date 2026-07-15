@@ -54,6 +54,8 @@ export async function POST(req: NextRequest) {
       }
     })();
 
+    console.log(`[generate-image] provider=${providerId} model=${modelId} hasKey=${!!resolvedApiKey} keyPrefix=${resolvedApiKey?.slice(0, 10)}`);
+
     if (!resolvedApiKey) {
       return new Response(
         JSON.stringify({ error: "Missing API key for image generation" }),
@@ -68,8 +70,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    type NvidiaPayload = { prompt: string } | { text_prompts: { text: string }[]; cfg_scale: number; steps: number };
     let endpoint = "";
-    let bodyPayload: any = {};
+    let bodyPayload: NvidiaPayload;
 
     if (providerId === "nvidia") {
       // NIM API uses model-specific endpoints
@@ -105,8 +108,14 @@ export async function POST(req: NextRequest) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[generate-image] API error:", errorText);
+      // Surface NVIDIA's detail message if available
+      let detail = response.statusText;
+      try {
+        const parsed = JSON.parse(errorText);
+        detail = parsed.detail || parsed.title || parsed.error || detail;
+      } catch { /* not JSON */ }
       return new Response(
-        JSON.stringify({ error: `API error: ${response.statusText}` }),
+        JSON.stringify({ error: `Image generation failed: ${detail}` }),
         { status: response.status, headers: { "Content-Type": "application/json" } }
       );
     }
