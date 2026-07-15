@@ -51,6 +51,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     async function loadData(currentUser: User) {
       // Check admin
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', currentUser.id).single()
+      console.log("[DEBUG] Current user email:", currentUser.email, "Profile role from DB:", profile?.role);
       setIsAdmin(profile?.role === 'admin')
 
       // Fetch chats
