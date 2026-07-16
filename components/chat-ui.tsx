@@ -28,10 +28,10 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showTokenDialog, setShowTokenDialog] = useState(false);
   // Stable UUID for new chats started from root page — must be UUID to match chats.id schema
-  const newChatIdRef = useRef<string>(
+  const [newChatId] = useState<string>(() =>
     typeof crypto !== "undefined" ? crypto.randomUUID() : Date.now().toString()
   );
-  const activeChatId = id ?? newChatIdRef.current;
+  const activeChatId = id ?? newChatId;
 
   const isImageMode = modeState.mode === "text-to-image";
 
@@ -176,7 +176,7 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
       setInput("");
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     }
-  }, [input, isLoading, isImageMode, sendMessage, setMessages, modeState.imageModelId, effectiveApiKey, id]);
+  }, [input, isLoading, isImageMode, sendMessage, setMessages, modeState.imageModelId, effectiveApiKey, id, activeChatId, router]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
