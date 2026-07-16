@@ -102,10 +102,12 @@ export async function POST(req: NextRequest) {
        }
        
        const contentText = userMessage.parts.filter(p => p.type === 'text').map(p => (p as TextPart).text).join('');
+       const attachments = userMessage.annotations?.length ? userMessage.annotations : null;
        await supabase.from('messages').insert({
         chat_id: activeChatId,
         role: 'user',
-        content: contentText
+        content: contentText,
+        attachments: attachments
       });
     }
 

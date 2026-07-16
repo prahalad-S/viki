@@ -14,8 +14,9 @@ import { ModeSwitcher } from "@/components/mode-switcher";
 import { TokenExhaustedDialog } from "@/components/token-exhausted-dialog";
 import { useProviderSettings } from "@/hooks/use-provider-settings";
 import { useChatMode } from "@/hooks/use-chat-mode";
-import { SendHorizontal, Square, RotateCcw, Bot, User, AlertCircle, ImageIcon } from "lucide-react";
+import { SendHorizontal, Square, RotateCcw, Bot, User, AlertCircle, ImageIcon, Paperclip, X, File as FileIcon, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parsePdf, parseWordDoc, fileToBase64 } from "@/lib/file-parser";
 
 export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessages?: UIMessage[] }) {
   const { settings } = useProviderSettings(); // BYOK from provider settings dialog
@@ -26,6 +27,8 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<{ id: string; file: File; type: string; base64?: string; text?: string; isUploading: boolean }[]>([]);
   const [showTokenDialog, setShowTokenDialog] = useState(false);
   // Stable UUID for new chats started from root page — must be UUID to match chats.id schema
   const [newChatId] = useState<string>(() =>
@@ -118,8 +121,29 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       setIsGeneratingImage(true);
 
+      const attachedImage = attachments.find(a => a.type.startsWith('image/'))?.base64;
       const userMessageId = Date.now().toString();
-      setMessages((prev) => [...prev, { id: userMessageId, role: "user", parts: [{ type: "text", text }] }]);
+      
+      const parts: any[] = [{ type: "text", text }];
+      if (attachedImage) {
+        parts.push({ type: "image", image: attachedImage });
+      }
+
+      const annotations = attachments.map(att => ({
+        type: "attachment",
+        name: att.file.name,
+        fileType: att.type,
+        base64: att.base64
+      }));
+
+      setMessages((prev) => [...prev, { 
+        id: userMessageId, 
+        role: "user", 
+        parts,
+        annotations: annotations.length > 0 ? annotations : undefined
+      }]);
+      
+      setAttachments([]);
 
       try {
         if (!id && window.location.pathname === "/") {
@@ -135,6 +159,7 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
             modelId: modeState.imageModelId,
             apiKey: effectiveApiKey,
             chatId: activeChatId,
+            image: attachedImage,
           }),
         });
 
@@ -172,8 +197,27 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
         setIsGeneratingImage(false);
       }
     } else {
-      sendMessage({ role: "user", parts: [{ type: "text", text }] });
+      let finalParts: any[] = [{ type: "text", text }];
+      const annotations: any[] = [];
+      
+      attachments.forEach((att) => {
+        annotations.push({
+          type: "attachment",
+          name: att.file.name,
+          fileType: att.type,
+          base64: att.base64
+        });
+        
+        if (att.type.startsWith("image/") && att.base64) {
+          finalParts.push({ type: "image", image: att.base64 });
+        } else if (att.text) {
+          finalParts[0].text += `\n\n<document name="${att.file.name}">\n${att.text}\n</document>`;
+        }
+      });
+
+      sendMessage({ role: "user", parts: finalParts, annotations: annotations.length > 0 ? annotations : undefined });
       setInput("");
+      setAttachments([]);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     }
   }, [input, isLoading, isImageMode, sendMessage, setMessages, modeState.imageModelId, effectiveApiKey, id, activeChatId, router]);
@@ -183,6 +227,41 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const files = Array.from(e.target.files);
+    
+    const newAttachments = files.map(file => ({
+      id: Math.random().toString(36).substring(7),
+      file,
+      type: file.type || 'application/octet-stream',
+      isUploading: true
+    }));
+    
+    setAttachments(prev => [...prev, ...newAttachments]);
+    
+    for (const att of newAttachments) {
+      try {
+        let base64, text;
+        if (att.type.startsWith('image/')) {
+          base64 = await fileToBase64(att.file);
+        } else if (att.type === 'application/pdf') {
+          text = await parsePdf(att.file);
+        } else if (att.file.name.endsWith('.docx')) {
+          text = await parseWordDoc(att.file);
+        } else {
+          text = await att.file.text();
+        }
+        
+        setAttachments(prev => prev.map(p => p.id === att.id ? { ...p, base64, text, isUploading: false } : p));
+      } catch (err) {
+        console.error("Error parsing file", err);
+        setAttachments(prev => prev.filter(p => p.id !== att.id));
+      }
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const isEmptyChat = messages.length === 0;
@@ -255,7 +334,26 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
                     )}
                   >
                     {msg.role === "user" ? (
-                      <p className="whitespace-pre-wrap">{textContent}</p>
+                      <div>
+                        {msg.annotations?.filter((a: any) => a.type === 'attachment').length > 0 && (
+                           <div className="flex flex-wrap gap-2 mb-2">
+                             {msg.annotations.filter((a: any) => a.type === 'attachment').map((att: any, i: number) => (
+                                <div key={i} className="flex flex-col gap-1">
+                                  {att.base64 ? (
+                                     // eslint-disable-next-line @next/next/no-img-element
+                                     <img src={att.base64} alt={att.name} className="max-h-40 rounded-md border border-white/20" />
+                                  ) : (
+                                     <div className="flex items-center gap-2 bg-background/20 rounded-md px-2 py-1 text-xs border border-white/20">
+                                       <FileIcon className="size-3" />
+                                       <span className="truncate max-w-[150px]">{att.name}</span>
+                                     </div>
+                                  )}
+                                </div>
+                             ))}
+                           </div>
+                        )}
+                        <p className="whitespace-pre-wrap">{textContent.replace(/<document name=".*?">[\s\S]*?<\/document>/g, '').trim()}</p>
+                      </div>
                     ) : isImgMsg ? (
                       // Render generated image nicely — extract URL from markdown
                       <GeneratedImageMessage content={textContent} />
@@ -341,8 +439,40 @@ export function ChatUI({ id, initialMessages = [] }: { id?: string, initialMessa
       <div className="p-4 bg-background/80 backdrop-blur-md border-t">
         <div className="max-w-3xl mx-auto">
           <div className="flex flex-col bg-muted/50 border rounded-2xl px-4 pt-3 pb-2 focus-within:ring-1 focus-within:ring-ring transition-all gap-2">
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-2 pb-2">
+                {attachments.map(att => (
+                  <div key={att.id} className="flex items-center gap-2 bg-background border rounded-md px-2 py-1 text-xs">
+                    {att.isUploading ? <Loader2 className="size-3 animate-spin" /> : att.type.startsWith('image/') ? <ImageIcon className="size-3" /> : <FileIcon className="size-3" />}
+                    <span className="max-w-[100px] truncate">{att.file.name}</span>
+                    <button type="button" onClick={() => setAttachments(prev => prev.filter(p => p.id !== att.id))} className="text-muted-foreground hover:text-foreground">
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Textarea */}
             <div className="flex items-end gap-2">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="flex-shrink-0 rounded-xl size-9 text-muted-foreground"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+              >
+                <Paperclip className="size-4" />
+                <span className="sr-only">Attach file</span>
+              </Button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                multiple 
+                className="hidden" 
+                accept="image/*,.pdf,.docx,.txt"
+              />
               <Textarea
                 ref={textareaRef}
                 value={input}

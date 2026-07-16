@@ -39,12 +39,12 @@ create table public.chats (
   primary key (id)
 );
 
--- Messages table
 create table public.messages (
   id uuid not null default gen_random_uuid(),
   chat_id uuid not null references public.chats on delete cascade,
   role text not null check (role in ('system', 'user', 'assistant', 'data')),
   content text not null,
+  attachments jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   primary key (id)
 );

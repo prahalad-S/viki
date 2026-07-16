@@ -39,12 +39,13 @@ export async function POST(req: NextRequest) {
     }).eq('id', user.id);
 
     const body = await req.json();
-    const { prompt, providerId, modelId, apiKey, chatId } = body as {
+    const { prompt, providerId, modelId, apiKey, chatId, image } = body as {
       prompt: string;
       providerId: string;
       modelId: string;
       apiKey?: string;
       chatId?: string;
+      image?: string;
     };
 
     const resolvedApiKey = apiKey || (() => {
@@ -75,16 +76,64 @@ export async function POST(req: NextRequest) {
     let bodyPayload: NvidiaPayload;
 
     if (providerId === "nvidia") {
-      // NIM API uses model-specific endpoints
       let resolvedModelId = modelId;
+      const b64Data = image ? image.split(',')[1] : undefined;
+      
+      let finalPrompt = prompt;
+      
+      // Use Vision model to improve the prompt if an image is attached
+      if (b64Data && resolvedApiKey) {
+          try {
+              const visionRes = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                  method: "POST",
+                  headers: {
+                      "Authorization": `Bearer ${resolvedApiKey}`,
+                      "Content-Type": "application/json"
+                  },
+                  body: JSON.stringify({
+                      model: "meta/llama-3.2-90b-vision-instruct",
+                      messages: [
+                          {
+                              role: "user",
+                              content: [
+                                  { type: "text", text: `Analyze this image. The user wants to improve or modify it with this request: "${prompt}". Generate a descriptive prompt for a text-to-image model that implements the requested improvements while retaining the core structure of the original image. Keep your response extremely concise, under 500 characters. Respond ONLY with the prompt, nothing else.` },
+                                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64Data}` } }
+                              ]
+                          }
+                      ],
+                      max_tokens: 1024
+                  })
+              });
+              
+              if (visionRes.ok) {
+                  const visionData = await visionRes.json();
+                  finalPrompt = visionData.choices?.[0]?.message?.content?.trim() || finalPrompt;
+                  if (finalPrompt.length > 750) {
+                      finalPrompt = finalPrompt.substring(0, 750);
+                  }
+                  console.log("[generate-image] Improved prompt via Vision:", finalPrompt);
+              } else {
+                  console.warn("[generate-image] Vision model failed", await visionRes.text());
+              }
+          } catch (e) {
+              console.error("[generate-image] Vision API error:", e);
+          }
+      }
+      
       if (modelId === "black-forest-labs/flux1-dev") {
         resolvedModelId = "black-forest-labs/flux.1-dev";
-        bodyPayload = { prompt: prompt };
+        bodyPayload = { prompt: finalPrompt } as any; // Flux doesn't support image input
       } else if (modelId === "stabilityai/stable-diffusion-xl-base-1.0") {
         resolvedModelId = "stabilityai/stable-diffusion-xl";
-        bodyPayload = { text_prompts: [{ text: prompt }], cfg_scale: 5, steps: 30 };
+        bodyPayload = { 
+          text_prompts: [{ text: finalPrompt }], 
+          cfg_scale: 5, 
+          steps: 30,
+          ...(b64Data ? { init_image: b64Data } : {})
+        } as any;
       } else {
-        bodyPayload = { prompt: prompt };
+        // Fallback for flux.2-klein-4b and others which don't support 'image'
+        bodyPayload = { prompt: finalPrompt } as any; 
       }
 
       endpoint = `https://ai.api.nvidia.com/v1/genai/${resolvedModelId}`;
@@ -143,7 +192,12 @@ export async function POST(req: NextRequest) {
        }
        
        await supabase.from('messages').insert([
-         { chat_id: chatId, role: 'user', content: prompt },
+         { 
+           chat_id: chatId, 
+           role: 'user', 
+           content: prompt,
+           attachments: image ? [{ type: 'attachment', name: 'uploaded_image', fileType: 'image/jpeg', base64: image }] : null
+         },
          { chat_id: chatId, role: 'assistant', content: `![Generated Image](${imageUrl})` }
        ]);
     }
